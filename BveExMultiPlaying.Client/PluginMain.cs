@@ -83,7 +83,7 @@ namespace BveExMultiPlaying.Client
         //終了時処理
         public override void Dispose()
         {
-            BveHacker.Assistants.Items.Remove(debugText);
+            // BveHacker.Assistants.Items.Remove(debugText);
             hubConnection?.StopAsync().Wait();
             hubConnection?.DisposeAsync().AsTask().Wait();
             BveHacker.ScenarioCreated -= OnScenarioCreated;
