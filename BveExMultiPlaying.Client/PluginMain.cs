@@ -60,9 +60,8 @@ namespace BveExMultiPlaying.Client
 
 
         //コンストラクタ
-        public PluginMain(PluginBuilder builder, Timer sendTimer) : base(builder)
+        public PluginMain(PluginBuilder builder) : base(builder)
         {
-            this.sendTimer = sendTimer;
             //BveEX自列車番号設定オリジナルマップ構文取得用
             Statements = Extensions.GetExtension<IStatementSet>();
             //デバッグテキスト表示用
