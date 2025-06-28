@@ -58,8 +58,10 @@ public class PluginMain : AssemblyPluginBase
 
 
     //コンストラクタ
-    public PluginMain(PluginBuilder builder) : base(builder)
+    public PluginMain(PluginBuilder builder, Timer sendTimer, Timer receiveTimer) : base(builder)
     {
+        this.sendTimer = sendTimer;
+        this.receiveTimer = receiveTimer;
         //BveEX自列車番号設定オリジナルマップ構文取得用
         Statements = Extensions.GetExtension<IStatementSet>();
         //デバッグテキスト表示用
@@ -89,18 +91,16 @@ public class PluginMain : AssemblyPluginBase
     public override void Tick(TimeSpan elapsed)
     {
         ApplyReceivedData(elapsed);
-        if (OtherTrainData != null)
+        foreach (var trains in BveHacker.Scenario.Trains)
         {
-            foreach (var trains in BveHacker.Scenario.Trains)
+            foreach (var otherTrainData in OtherTrainData)
             {
-                foreach (var otherTrainData in OtherTrainData)
+                if (otherTrainData.Key != trains.Key)
                 {
-                    if (otherTrainData.Key == trains.Key)
-                    {
-                        trains.Value.Location = otherTrainData.Value.Location;
-                        trains.Value.Speed = otherTrainData.Value.Speed;
-                    }
+                    continue;
                 }
+                trains.Value.Location = otherTrainData.Value.Location;
+                trains.Value.Speed = otherTrainData.Value.Speed;
             }
         }
 
@@ -168,8 +168,7 @@ public class PluginMain : AssemblyPluginBase
         myTrain.Speed = BveHacker.Scenario.VehicleLocation.Speed;
         //各自列車情報をリスト化
 
-        var clientData = new TrainInfoData();
-        clientData = myTrain;
+        var clientData = myTrain;
         string jsonData = JsonSerializer.Serialize(clientData);
 
         //自列車情報（送信用）をJSON形式に変換、送信
@@ -192,17 +191,18 @@ public class PluginMain : AssemblyPluginBase
         try
         {
             HttpResponseMessage response = await client.GetAsync(ServerUrl);
-            if (response.IsSuccessStatusCode)
+            if (!response.IsSuccessStatusCode)
             {
-                string jsonData = await response.Content.ReadAsStringAsync();
-                var receivedClients = JsonSerializer.Deserialize<List<TrainInfoData>>(jsonData);
-                if (receivedClients != null)
+                return;
+            }
+            string jsonData = await response.Content.ReadAsStringAsync();
+            var receivedClients = JsonSerializer.Deserialize<List<TrainInfoData>>(jsonData);
+            if (receivedClients != null)
+            {
+                lock (trainMapLockObj)
                 {
-                    lock (trainMapLockObj)
-                    {
-                        OtherTrainData = receivedClients.Where(x => x.ClientId != myTrain.ClientId)
-                            .ToDictionary(x => x.TrainNumber, x => x);
-                    }
+                    OtherTrainData = receivedClients.Where(x => x.ClientId != myTrain.ClientId)
+                        .ToDictionary(x => x.TrainNumber, x => x);
                 }
             }
         }
@@ -216,13 +216,14 @@ public class PluginMain : AssemblyPluginBase
     {
         lock (trainMapLockObj)
         {
-            if (OtherTrainData != null)
+            if (OtherTrainData == null)
             {
-                foreach (var otherTrainData in OtherTrainData)
-                {
-                    //var trainNumber = otherTrainData.Key;
-                    otherTrainData.Value.Location += otherTrainData.Value.Speed * elapsed.TotalSeconds;
-                }
+                return;
+            }
+            foreach (var otherTrainData in OtherTrainData)
+            {
+                //var trainNumber = otherTrainData.Key;
+                otherTrainData.Value.Location += otherTrainData.Value.Speed * elapsed.TotalSeconds;
             }
         }
     }
