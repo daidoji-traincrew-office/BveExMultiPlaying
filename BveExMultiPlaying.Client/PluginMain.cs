@@ -69,10 +69,8 @@ namespace BveExMultiPlaying.Client
             BveHacker.Assistants.Items.Add(debugText);
             //自列車情報（送信用）
             myTrain.ClientId = Guid.NewGuid().ToString(); //ユーザーIDを発行、自列車情報用インスタンスmyTrainに設定
-            //sendTimer = new Timer(SendDataToServer, null, 1000, 1000);//1秒ごとにデータ送信
             //他列車情報（受信用）
             OtherTrainData = new Dictionary<string, TrainInfoData>();
-            //receiveTimer = new Timer(ReceiveOtherClientsData, null, 1000, 1000);//1秒ごとにデータ受信//Tickに移動
             //SignalRハブ接続設定
             hubConnection = new HubConnectionBuilder()
                 .WithUrl(ServerUrl) // SignalRハブのURL
@@ -102,7 +100,7 @@ namespace BveExMultiPlaying.Client
             foreach (var trains in BveHacker.Scenario.Trains)
             {
                 
-                if (OtherTrainData.TryGetValue(trains.Key, out var otherTrainData))
+                if (!OtherTrainData.TryGetValue(trains.Key, out var otherTrainData))
                 {
                     continue; // 他列車情報がない、または列車が無効な場合はスキップ
                 }
