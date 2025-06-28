@@ -1,14 +1,16 @@
 ﻿using BveEx.Extensions.MapStatements;
 using BveEx.PluginHost;
 using BveEx.PluginHost.Plugins;
+using BveExMultiPlaying.Common.Contract;
 using BveTypes.ClassWrappers;
 using BveExMultiPlaying.Common.Models;
 using Microsoft.AspNetCore.SignalR.Client;
+using TypedSignalR.Client;
 
 namespace BveExMultiPlaying.Client;
 
 [Plugin(PluginType.MapPlugin)]
-public class PluginMain : AssemblyPluginBase
+public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
 {
     // サーバーURL
     private const string ServerUrl = "http://naruchan-aout.softether.net:5001/api/update";
@@ -20,6 +22,8 @@ public class PluginMain : AssemblyPluginBase
     private AssistantText debugText;
 
     private readonly HubConnection hubConnection;
+    
+    private readonly ITrainHubContract hubContract;
 
     //自列車情報（送信用）
     TrainInfoData myTrain = new(); //自列車情報用インスタンスを生成
@@ -72,6 +76,8 @@ public class PluginMain : AssemblyPluginBase
             .WithUrl(ServerUrl) // SignalRハブのURL
             .WithAutomaticReconnect()
             .Build();
+        hubContract = hubConnection.CreateHubProxy<ITrainHubContract>();
+        hubConnection.Register<ITrainHubClientContract>(this);
         //イベント購読
         BveHacker.ScenarioCreated += OnScenarioCreated;
     }
@@ -145,7 +151,8 @@ public class PluginMain : AssemblyPluginBase
     //シナリオ作成イベント購読時の処理
     private void OnScenarioCreated(ScenarioCreatedEventArgs e)
     {
-        sendTimer = new(SendDataToServer, null, 0, 100); //0.1秒ごとにデータ送信
+        //0.1秒ごとにデータ送信
+        sendTimer = new(obj => SendDataToServer(obj).Wait(), null, 0, 100); 
         //BveEX自列車番号設定オリジナルマップ構文取得用
         Statement put = Statements.FindUserStatement("YUtrain",
             ClauseFilter.Element("MultiPlaying", 0),
@@ -157,7 +164,7 @@ public class PluginMain : AssemblyPluginBase
     }
 
     //自列車情報（送信用）イベント（1秒ごと）←次ここから書く（Location,Speedに関してはまずは1秒おき）毎フレームリスト化しない！
-    private async void SendDataToServer(object? state)
+    private async Task SendDataToServer(object? state)
     {
         //自列車情報（位置,速度）を取得、自列車情報用インスタンスmyTrainに設定
         myTrain.Location = BveHacker.Scenario.VehicleLocation.Location;
@@ -165,16 +172,26 @@ public class PluginMain : AssemblyPluginBase
         //各自列車情報をリスト化
 
         var clientData = myTrain.Clone();
+        //自列車情報をサーバーに送信
+        try
+        {
+            await hubContract.SendTrainData(clientData);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"データ送信エラー: {ex.Message}");
+        }
     }
 
     //他列車情報（受信用）イベント（1秒ごと）
-    private async void ReceiveOtherClientsData(List<TrainInfoData> receivedClients)
+    public Task ReceiveTrainData(TrainInfoData trainInfoData)
     {
         lock (trainMapLockObj)
         {
-            OtherTrainData = receivedClients.Where(x => x.ClientId != myTrain.ClientId)
-                .ToDictionary(x => x.TrainNumber, x => x);
+            OtherTrainData[trainInfoData.TrainNumber] = trainInfoData;
         }
+
+        return Task.CompletedTask;
     }
 
     private void ApplyReceivedData(TimeSpan elapsed)
