@@ -102,8 +102,8 @@ namespace BveExMultiPlaying.Client
             ApplyReceivedData(elapsed);
             foreach (var trains in BveHacker.Scenario.Trains)
             {
-                var otherTrainData = OtherTrainData.GetValueOrDefault(trains.Key);
-                if (otherTrainData == null)
+                
+                if (OtherTrainData.TryGetValue(trains.Key, out var otherTrainData))
                 {
                     continue; // 他列車情報がない、または列車が無効な場合はスキップ
                 }
@@ -159,7 +159,7 @@ namespace BveExMultiPlaying.Client
             Statement put = Statements.FindUserStatement("YUtrain",
                 ClauseFilter.Element("MultiPlaying", 0),
                 ClauseFilter.Function("TrainNumber", 1));
-            MapStatementClause function = put.Source.Clauses[^1];
+            MapStatementClause function = put.Source.Clauses[put.Source.Clauses.Count - 1];
             myTrain.TrainNumber = function.Args[0] as string; //自列車情報用インスタンスmyTrainに列車番号を設定
             //SignalRハブ接続開始
             hubConnection.StartAsync().Wait();
