@@ -26,12 +26,9 @@ namespace BveExMultiPlaying.Client
 
         private readonly HubConnection hubConnection;
 
-        private readonly ITrainHubContract hubContract;
-
         //自列車情報（送信用）
         TrainInfoData myTrain = new TrainInfoData(); //自列車情報用インスタンスを生成
 
-        private Timer sendTimer;
 
         //他列車情報（受信用）
         private static Dictionary<string, TrainInfoData> OtherTrainData { get; set; }
@@ -77,7 +74,7 @@ namespace BveExMultiPlaying.Client
                 .WithAutomaticReconnect()
                 .Build();
             hubConnection.On(
-                "ReceiveTrainData", 
+                "ReceiveTrainData",
                 async (TrainInfoData trainInfoData) => await ReceiveTrainData(trainInfoData));
             //イベント購読
             BveHacker.ScenarioCreated += OnScenarioCreated;
@@ -87,7 +84,6 @@ namespace BveExMultiPlaying.Client
         public override void Dispose()
         {
             BveHacker.Assistants.Items.Remove(debugText);
-            sendTimer?.Dispose();
             hubConnection?.StopAsync().Wait();
             hubConnection?.DisposeAsync().AsTask().Wait();
             BveHacker.ScenarioCreated -= OnScenarioCreated;
@@ -99,7 +95,6 @@ namespace BveExMultiPlaying.Client
             ApplyReceivedData(elapsed);
             foreach (var trains in BveHacker.Scenario.Trains)
             {
-                
                 if (!OtherTrainData.TryGetValue(trains.Key, out var otherTrainData))
                 {
                     continue; // 他列車情報がない、または列車が無効な場合はスキップ
@@ -110,8 +105,8 @@ namespace BveExMultiPlaying.Client
             }
 
             //デバッグテキスト表示用
-            debugText.Text = "自列車番号: " + myTrain.TrainNumber +
-                             $"位置: {myTrain.Location:F1}m, 速度: {myTrain.Speed:F1}m/s";
+            // debugText.Text = "自列車番号: " + myTrain.TrainNumber +
+            // $"位置: {myTrain.Location:F1}m, 速度: {myTrain.Speed:F1}m/s";
 
             /*if (BveHacker.Scenario.Trains.ContainsKey("0523m"))
             {
@@ -150,16 +145,24 @@ namespace BveExMultiPlaying.Client
         //シナリオ作成イベント購読時の処理
         private void OnScenarioCreated(ScenarioCreatedEventArgs e)
         {
+            Task.Run(async () =>
+            {
+                debugText.Text = "SignalRハブ接続中...";
+                await hubConnection.StartAsync();
+                debugText.Text = "SignalRハブ接続完了";
+                while (true)
+                {
+                    await SendDataToServer();
+                    await Task.Delay(100); // 1秒ごとに状態を確認
+                }
+            });
             //0.1秒ごとにデータ送信
-            sendTimer = new Timer(_ => SendDataToServer().Wait(), null, 0, 100);
             //BveEX自列車番号設定オリジナルマップ構文取得用
             Statement put = Statements.FindUserStatement("YUtrain",
                 ClauseFilter.Element("MultiPlaying", 0),
                 ClauseFilter.Function("TrainNumber", 1));
             MapStatementClause function = put.Source.Clauses[put.Source.Clauses.Count - 1];
             myTrain.TrainNumber = function.Args[0] as string; //自列車情報用インスタンスmyTrainに列車番号を設定
-            //SignalRハブ接続開始
-            hubConnection.StartAsync().Wait();
         }
 
         //自列車情報（送信用）イベント（1秒ごと）←次ここから書く（Location,Speedに関してはまずは1秒おき）毎フレームリスト化しない！
@@ -174,11 +177,11 @@ namespace BveExMultiPlaying.Client
             //自列車情報をサーバーに送信
             try
             {
-                await hubContract.SendTrainData(clientData);
+                await hubConnection.InvokeCoreAsync("SendTrainData", new object[] { clientData });
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"データ送信エラー: {ex.Message}");
+                debugText.Text = $"データ送信エラー: {ex.Message} {ex.StackTrace}";
             }
         }
 
