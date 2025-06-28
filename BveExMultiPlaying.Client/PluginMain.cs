@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BveEx.Extensions.MapStatements;
@@ -34,6 +35,8 @@ namespace BveExMultiPlaying.Client
         private static Dictionary<string, TrainInfoData> OtherTrainData { get; set; }
 
         private readonly object trainMapLockObj = new object(); //他列車情報のスレッドセーフ用ロックオブジェクト
+
+        private readonly CancellationTokenSource tokenSource = new CancellationTokenSource();
 
         //先行列車解除の有無用
         //private Train Train;
@@ -83,7 +86,8 @@ namespace BveExMultiPlaying.Client
         //終了時処理
         public override void Dispose()
         {
-            // BveHacker.Assistants.Items.Remove(debugText);
+            tokenSource.Cancel();
+            BveHacker.Assistants.Items.Remove(debugText);
             hubConnection?.StopAsync().Wait();
             hubConnection?.DisposeAsync().AsTask().Wait();
             BveHacker.ScenarioCreated -= OnScenarioCreated;
@@ -152,8 +156,16 @@ namespace BveExMultiPlaying.Client
                 debugText.Text = "SignalRハブ接続完了";
                 while (true)
                 {
-                    await SendDataToServer();
-                    await Task.Delay(100); // 1秒ごとに状態を確認
+                    try
+                    {
+                        await SendDataToServer(tokenSource.Token);
+                        await Task.Delay(100, tokenSource.Token); // 1秒ごとに状態を確認    
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // キャンセルされた場合はループを抜ける
+                        break;
+                    }
                 }
             });
             //0.1秒ごとにデータ送信
@@ -166,7 +178,7 @@ namespace BveExMultiPlaying.Client
         }
 
         //自列車情報（送信用）イベント（1秒ごと）←次ここから書く（Location,Speedに関してはまずは1秒おき）毎フレームリスト化しない！
-        private async Task SendDataToServer()
+        private async Task SendDataToServer(CancellationToken token)
         {
             //自列車情報（位置,速度）を取得、自列車情報用インスタンスmyTrainに設定
             myTrain.Location = BveHacker.Scenario.VehicleLocation.Location;
@@ -177,7 +189,14 @@ namespace BveExMultiPlaying.Client
             //自列車情報をサーバーに送信
             try
             {
-                await hubConnection.InvokeCoreAsync("SendTrainData", new object[] { clientData });
+                await hubConnection.InvokeCoreAsync(
+                    "SendTrainData",
+                    new object[] { clientData },
+                    cancellationToken: token);
+            }
+            catch (OperationCanceledException)
+            {
+                // キャンセルされた場合は何もしない
             }
             catch (Exception ex)
             {
