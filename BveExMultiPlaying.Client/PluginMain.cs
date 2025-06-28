@@ -155,8 +155,10 @@ public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
             {
                 try
                 {
+                    // 通信処理中もタイマーは進めておく
+                    var delay = Task.Delay(100, tokenSource.Token); 
                     await SendDataToServer(tokenSource.Token);
-                    await Task.Delay(100, tokenSource.Token); // 1秒ごとに状態を確認    
+                    await delay;
                 }
                 catch (OperationCanceledException)
                 {
