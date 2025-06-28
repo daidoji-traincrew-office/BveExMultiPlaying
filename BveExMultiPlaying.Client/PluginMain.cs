@@ -22,7 +22,7 @@ public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
     private AssistantText debugText;
 
     private readonly HubConnection hubConnection;
-    
+
     private readonly ITrainHubContract hubContract;
 
     //自列車情報（送信用）
@@ -98,16 +98,14 @@ public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
         ApplyReceivedData(elapsed);
         foreach (var trains in BveHacker.Scenario.Trains)
         {
-            foreach (var otherTrainData in OtherTrainData)
+            var otherTrainData = OtherTrainData.GetValueOrDefault(trains.Key);
+            if (otherTrainData == null)
             {
-                if (otherTrainData.Key != trains.Key)
-                {
-                    continue;
-                }
-
-                trains.Value.Location = otherTrainData.Value.Location;
-                trains.Value.Speed = otherTrainData.Value.Speed;
+                continue; // 他列車情報がない、または列車が無効な場合はスキップ
             }
+
+            trains.Value.Location = otherTrainData.Location;
+            trains.Value.Speed = otherTrainData.Speed;
         }
 
         //デバッグテキスト表示用
@@ -152,7 +150,7 @@ public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
     private void OnScenarioCreated(ScenarioCreatedEventArgs e)
     {
         //0.1秒ごとにデータ送信
-        sendTimer = new(obj => SendDataToServer(obj).Wait(), null, 0, 100); 
+        sendTimer = new(_ => SendDataToServer().Wait(), null, 0, 100);
         //BveEX自列車番号設定オリジナルマップ構文取得用
         Statement put = Statements.FindUserStatement("YUtrain",
             ClauseFilter.Element("MultiPlaying", 0),
@@ -164,7 +162,7 @@ public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
     }
 
     //自列車情報（送信用）イベント（1秒ごと）←次ここから書く（Location,Speedに関してはまずは1秒おき）毎フレームリスト化しない！
-    private async Task SendDataToServer(object? state)
+    private async Task SendDataToServer()
     {
         //自列車情報（位置,速度）を取得、自列車情報用インスタンスmyTrainに設定
         myTrain.Location = BveHacker.Scenario.VehicleLocation.Location;
@@ -198,11 +196,6 @@ public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
     {
         lock (trainMapLockObj)
         {
-            if (OtherTrainData == null)
-            {
-                return;
-            }
-
             foreach (var otherTrainData in OtherTrainData)
             {
                 //var trainNumber = otherTrainData.Key;
