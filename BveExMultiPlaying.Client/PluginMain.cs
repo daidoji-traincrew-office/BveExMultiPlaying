@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BveEx.Extensions.MapStatements;
@@ -10,6 +9,7 @@ using BveExMultiPlaying.Common.Contract;
 using BveTypes.ClassWrappers;
 using BveExMultiPlaying.Common.Models;
 using Microsoft.AspNetCore.SignalR.Client;
+using TypedSignalR.Client;
 
 namespace BveExMultiPlaying.Client;
 
@@ -75,9 +75,7 @@ public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
             .WithUrl(ServerUrl) // SignalRハブのURL
             .WithAutomaticReconnect()
             .Build();
-        hubConnection.On(
-            "ReceiveTrainData",
-            async (TrainInfoData trainInfoData) => await ReceiveTrainData(trainInfoData));
+        hubConnection.Register<ITrainHubClientContract>(this);
         //イベント購読
         BveHacker.ScenarioCreated += OnScenarioCreated;
     }
@@ -188,10 +186,8 @@ public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
         //自列車情報をサーバーに送信
         try
         {
-            await hubConnection.InvokeCoreAsync(
-                "SendTrainData",
-                [clientData],
-                cancellationToken: token);
+            var trainHub = hubConnection.CreateHubProxy<ITrainHubContract>(token);
+            await trainHub.SendTrainData(clientData);
         }
         catch (OperationCanceledException)
         {
