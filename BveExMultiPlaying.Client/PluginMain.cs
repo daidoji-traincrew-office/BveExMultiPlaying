@@ -13,7 +13,7 @@ namespace BveExMultiPlaying.Client;
 public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
 {
     // サーバーURL
-    private const string ServerUrl = "http://naruchan-aout.softether.net:5001/api/update";
+    private const string ServerUrl = "https://localhost:7261/hubs/train";
 
     //BveEX自列車番号設定オリジナルマップ構文取得用
     private readonly IStatementSet Statements;
