@@ -15,4 +15,15 @@ public class TrainInfoData
 
     //速度
     public double Speed { set; get; } = 0;
+    
+    public TrainInfoData Clone()
+    {
+        return new TrainInfoData
+        {
+            ClientId = this.ClientId,
+            TrainNumber = this.TrainNumber,
+            Location = this.Location,
+            Speed = this.Speed
+        };
+    }
 }

@@ -1,40 +1,35 @@
-﻿using System.Text;
-using System.Text.Json;
-using BveEx.Extensions.MapStatements;
+﻿using BveEx.Extensions.MapStatements;
 using BveEx.PluginHost;
 using BveEx.PluginHost.Plugins;
 using BveTypes.ClassWrappers;
 using BveExMultiPlaying.Common.Models;
+using Microsoft.AspNetCore.SignalR.Client;
 
 namespace BveExMultiPlaying.Client;
 
 [Plugin(PluginType.MapPlugin)]
 public class PluginMain : AssemblyPluginBase
 {
+    // サーバーURL
+    private const string ServerUrl = "http://naruchan-aout.softether.net:5001/api/update";
+
     //BveEX自列車番号設定オリジナルマップ構文取得用
     private readonly IStatementSet Statements;
 
     //デバッグテキスト表示用
     private AssistantText debugText;
 
-    //DDNSインターネット通信用
-    private static readonly HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+    private readonly HubConnection hubConnection;
 
-    //private const string ServerUrl = "http://naruchanaout.clear-net.jp:5001/api/update";
-    private const string ServerUrl = "http://naruchan-aout.softether.net:5001/api/update";
-
-    //private const string ServerUrl = "http://133.32.217.166:5001/api/update";
     //自列車情報（送信用）
     TrainInfoData myTrain = new(); //自列車情報用インスタンスを生成
 
-    private static readonly object lockObj = new object();
     private Timer sendTimer;
 
     //他列車情報（受信用）
-    public static Dictionary<string, TrainInfoData> OtherTrainData { get; set; }
+    private static Dictionary<string, TrainInfoData> OtherTrainData { get; set; }
 
-    private Timer receiveTimer;
-    private readonly object trainMapLockObj = new object();
+    private readonly Lock trainMapLockObj = new();
 
     //先行列車解除の有無用
     //private Train Train;
@@ -58,10 +53,9 @@ public class PluginMain : AssemblyPluginBase
 
 
     //コンストラクタ
-    public PluginMain(PluginBuilder builder, Timer sendTimer, Timer receiveTimer) : base(builder)
+    public PluginMain(PluginBuilder builder, Timer sendTimer) : base(builder)
     {
         this.sendTimer = sendTimer;
-        this.receiveTimer = receiveTimer;
         //BveEX自列車番号設定オリジナルマップ構文取得用
         Statements = Extensions.GetExtension<IStatementSet>();
         //デバッグテキスト表示用
@@ -73,7 +67,11 @@ public class PluginMain : AssemblyPluginBase
         //他列車情報（受信用）
         OtherTrainData = new(); //ここに移動
         //receiveTimer = new Timer(ReceiveOtherClientsData, null, 1000, 1000);//1秒ごとにデータ受信//Tickに移動
-
+        //SignalRハブ接続設定
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(ServerUrl) // SignalRハブのURL
+            .WithAutomaticReconnect()
+            .Build();
         //イベント購読
         BveHacker.ScenarioCreated += OnScenarioCreated;
     }
@@ -83,7 +81,8 @@ public class PluginMain : AssemblyPluginBase
     {
         BveHacker.Assistants.Items.Remove(debugText);
         sendTimer?.Dispose();
-        receiveTimer?.Dispose();
+        hubConnection?.StopAsync().Wait();
+        hubConnection?.DisposeAsync().AsTask().Wait();
         BveHacker.ScenarioCreated -= OnScenarioCreated;
     }
 
@@ -99,6 +98,7 @@ public class PluginMain : AssemblyPluginBase
                 {
                     continue;
                 }
+
                 trains.Value.Location = otherTrainData.Value.Location;
                 trains.Value.Speed = otherTrainData.Value.Speed;
             }
@@ -145,70 +145,35 @@ public class PluginMain : AssemblyPluginBase
     //シナリオ作成イベント購読時の処理
     private void OnScenarioCreated(ScenarioCreatedEventArgs e)
     {
-        sendTimer = new Timer(SendDataToServer, null, 1000, 1000); //1秒ごとにデータ送信
-        receiveTimer = new Timer(ReceiveOtherClientsData, null, 1000, 1000); //1秒ごとにデータ受信
+        sendTimer = new(SendDataToServer, null, 0, 100); //0.1秒ごとにデータ送信
         //BveEX自列車番号設定オリジナルマップ構文取得用
         Statement put = Statements.FindUserStatement("YUtrain",
             ClauseFilter.Element("MultiPlaying", 0),
             ClauseFilter.Function("TrainNumber", 1));
-        MapStatementClause function = put.Source.Clauses[put.Source.Clauses.Count - 1];
+        MapStatementClause function = put.Source.Clauses[^1];
         myTrain.TrainNumber = function.Args[0] as string; //自列車情報用インスタンスmyTrainに列車番号を設定
-
-        //先行列車解除の有無
-        //Train = e.Scenario.Trains[]
-        //SectionManager sectionManager = e.Scenario.SectionManager;
-        //PreTrainPatch = Extensions.GetExtension<IPreTrainPatchFactory>().Patch(nameof(PreTrainPatch), sectionManager, new PreTrainLocationConverter(Train, sectionManager));
+        //SignalRハブ接続開始
+        hubConnection.StartAsync().Wait();
     }
 
     //自列車情報（送信用）イベント（1秒ごと）←次ここから書く（Location,Speedに関してはまずは1秒おき）毎フレームリスト化しない！
-    private async void SendDataToServer(object state)
+    private async void SendDataToServer(object? state)
     {
         //自列車情報（位置,速度）を取得、自列車情報用インスタンスmyTrainに設定
         myTrain.Location = BveHacker.Scenario.VehicleLocation.Location;
         myTrain.Speed = BveHacker.Scenario.VehicleLocation.Speed;
         //各自列車情報をリスト化
 
-        var clientData = myTrain;
-        string jsonData = JsonSerializer.Serialize(clientData);
-
-        //自列車情報（送信用）をJSON形式に変換、送信
-        var content = new StringContent(jsonData, Encoding.UTF8, "application/json");
-
-        try
-        {
-            HttpResponseMessage response = await client.PostAsync(ServerUrl, content);
-            Console.WriteLine($"送信ステータス: {response.StatusCode}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"送信エラー: {ex.Message}");
-        }
+        var clientData = myTrain.Clone();
     }
 
     //他列車情報（受信用）イベント（1秒ごと）
-    private async void ReceiveOtherClientsData(object state)
+    private async void ReceiveOtherClientsData(List<TrainInfoData> receivedClients)
     {
-        try
+        lock (trainMapLockObj)
         {
-            HttpResponseMessage response = await client.GetAsync(ServerUrl);
-            if (!response.IsSuccessStatusCode)
-            {
-                return;
-            }
-            string jsonData = await response.Content.ReadAsStringAsync();
-            var receivedClients = JsonSerializer.Deserialize<List<TrainInfoData>>(jsonData);
-            if (receivedClients != null)
-            {
-                lock (trainMapLockObj)
-                {
-                    OtherTrainData = receivedClients.Where(x => x.ClientId != myTrain.ClientId)
-                        .ToDictionary(x => x.TrainNumber, x => x);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"受信エラー: {ex.Message}");
+            OtherTrainData = receivedClients.Where(x => x.ClientId != myTrain.ClientId)
+                .ToDictionary(x => x.TrainNumber, x => x);
         }
     }
 
@@ -220,6 +185,7 @@ public class PluginMain : AssemblyPluginBase
             {
                 return;
             }
+
             foreach (var otherTrainData in OtherTrainData)
             {
                 //var trainNumber = otherTrainData.Key;
