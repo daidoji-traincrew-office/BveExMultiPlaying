@@ -19,7 +19,7 @@ jobs:
       - name: Get latest release
         id: latest_release
         uses: actions/github-script@v7.0.1
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           script: |
             try {
