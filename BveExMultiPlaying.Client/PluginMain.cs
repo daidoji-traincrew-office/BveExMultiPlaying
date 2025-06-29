@@ -69,7 +69,7 @@ public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
         OtherTrainData = new();
         //SignalRハブ接続設定
         hubConnection = new HubConnectionBuilder()
-            .WithUrl(ServerAddress.ServerUrl) // SignalRハブのURL
+            .WithUrl($"${ServerAddress.ServerUrl}/hubs/train") // SignalRハブのURL
             .WithAutomaticReconnect()
             .Build();
         hubConnection.Register<ITrainHubClientContract>(this);
