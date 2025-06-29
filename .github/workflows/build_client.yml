@@ -1,0 +1,119 @@
+name: Build Client
+on:
+  push: { }
+
+env:
+  APP_NAME: "BveExMultiPlayingClient"
+  APP_DIR: "BveExMultiPlaying.Client"
+  NAMESPACE: "BveExMultiPlaying.Client"
+  TZ: "Asia/Tokyo"
+
+jobs:
+  calc_version:
+    runs-on: ubuntu-latest
+    name: "Calc Version"
+    outputs:
+      VERSION: ${{ steps.calc_version.outputs.VERSION }}
+      APP_PREFIX: ${{ steps.calc_version.outputs.APP_PREFIX }}
+    steps:
+      - name: Get latest release
+        id: latest_release
+        uses: actions/github-script@v7.0.1
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        with:
+          script: |
+            try {
+              const response = await github.rest.repos.getLatestRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+              return response.data.tag_name;
+            }
+            catch (e){
+              if (e.status === 404) {
+                return '';
+              } else {
+                throw e;
+              }
+            }
+      - name: Calculate Version
+        id: calc_version
+        run: |
+          latest_tag="${{ steps.latest_release.outputs.result }}"
+          if [ -n "${latest_tag}" ]; then
+            today=$(date +%Y%m%d)
+            if [[ $latest_tag == *$today* ]]; then
+              n=$(echo $latest_tag | awk -F. '{print $4}')
+              n=$((n + 1))
+            else
+              n=1
+            fi
+            VERSION="v1.0.${today}.${n}-beta"
+          else
+            VERSION=$(date +%Y%m%d%H%M%S)
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+          file_name_version=$(echo "$VERSION" | sed 's/\./_/g')
+          echo "APP_PREFIX=${{ env.APP_NAME }}_${file_name_version}" >> "$GITHUB_OUTPUT"
+  build:
+    runs-on: ubuntu-latest
+    name: "Build"
+    needs: calc_version
+    steps:
+      - name: Set Zip File Name
+        run: |
+          echo "APP_VERSION=${{ needs.calc_version.outputs.VERSION }}" >> $GITHUB_ENV
+          echo "ZIP_FILE_NAME=${{ needs.calc_version.outputs.APP_PREFIX }}.zip" >> $GITHUB_ENV
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+      - name: Write ServerAddress.cs
+        run: |
+          cd ${{ env.APP_DIR }}
+          SERVER_ADDRESS=${{ secrets.SERVER_ADDRESS }}
+          cat <<EOF  > ./ServerAddress.cs
+          namespace ${{ env.NAMESPACE }};
+          public static class ServerAddress {
+              public const string ServerUrl = "${SERVER_ADDRESS}"; 
+          }
+          EOF
+      - name: Setup dotnet 9.0.x
+        uses: actions/setup-dotnet@v4.3.1
+        with:
+          dotnet-version: '9.0.x'
+      - name: Build Exe
+        run: |
+          cd ${{ env.APP_DIR }}
+          dotnet publish -c Release \
+            -o ${{ env.APP_NAME }} \
+            -p:EnableWindowsTargeting=true \
+      - name: Zip binaries
+        run: |
+          cd ${{ env.APP_DIR }}
+          zip -r ./${{ env.ZIP_FILE_NAME }} ${{ env.APP_NAME }}
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          path: ./${{ env.APP_DIR }}/${{ env.ZIP_FILE_NAME }}
+          name: ${{ env.ZIP_FILE_NAME }}
+  create_new_release:
+    runs-on: ubuntu-latest
+    name: "Create New Release"
+    permissions:
+      contents: write
+    needs:
+      - calc_version
+      - build
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4.2.1
+        with:
+          path: 'out'
+          merge-multiple: 'true'
+      - name: Create New Release
+        id: create_release
+        uses: softprops/action-gh-release@v2.2.1
+        with:
+          tag_name: ${{ needs.calc_version.outputs.VERSION }}
+          make_latest: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          files: out/*.zip
+          prerelease: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
