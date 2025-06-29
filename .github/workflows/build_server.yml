@@ -1,4 +1,4 @@
-﻿name: Build Server and Push Docker Image To Github Container Registry
+﻿name: Build Server
 on:
   workflow_dispatch: { }
   push:
