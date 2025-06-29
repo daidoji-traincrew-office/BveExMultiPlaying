@@ -16,9 +16,6 @@ namespace BveExMultiPlaying.Client;
 [Plugin(PluginType.MapPlugin)]
 public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
 {
-    // サーバーURL
-    private const string ServerUrl = "https://localhost:7261/hubs/train";
-
     //BveEX自列車番号設定オリジナルマップ構文取得用
     private readonly IStatementSet Statements;
 
@@ -72,7 +69,7 @@ public class PluginMain : AssemblyPluginBase, ITrainHubClientContract
         OtherTrainData = new();
         //SignalRハブ接続設定
         hubConnection = new HubConnectionBuilder()
-            .WithUrl(ServerUrl) // SignalRハブのURL
+            .WithUrl(ServerAddress.ServerUrl) // SignalRハブのURL
             .WithAutomaticReconnect()
             .Build();
         hubConnection.Register<ITrainHubClientContract>(this);
